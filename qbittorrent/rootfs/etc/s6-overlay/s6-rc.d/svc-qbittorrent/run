@@ -217,6 +217,7 @@ _setup_wireguard() {
                        echo "${private_key}" | wg set wg0 private-key /dev/stdin && \
                        wg set wg0 peer "${public_key}" endpoint "${endpoint}" allowed-ips 0.0.0.0/0 persistent-keepalive 25 && \
                        ip addr add "${address}" dev wg0 && \
+                       ip link set mtu 1420 dev wg0 && \
                        ip link set wg0 up; then
 
                         bashio::log.info "WireGuard interface created successfully"
@@ -385,6 +386,16 @@ _setup_wireguard() {
                             fi
                         else
                             bashio::log.info '✓ Tunnel connectivity verified!'
+                        fi
+
+                        # Check if this is ProtonVPN (has port forwarding)
+                        if echo "${address}" | grep -q "^10\.2\."; then
+                            bashio::log.info "ProtonVPN detected - attempting to configure port forwarding..."
+                            vpn_gateway=$(echo "${address}" | cut -d/ -f1 | awk -F. '{print $1"."$2".0.1"}')
+
+                            # Run port forwarding detection in background
+                            chmod +x /usr/local/bin/protonvpn-portforward.sh 2>/dev/null || true
+                            /usr/local/bin/protonvpn-portforward.sh "${vpn_gateway}" &
                         fi
 
                         # CRITICAL: Bind qBittorrent to wg0 interface
