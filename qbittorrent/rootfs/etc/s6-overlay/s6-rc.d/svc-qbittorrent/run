@@ -237,7 +237,6 @@ _setup_wireguard() {
     bashio::log.info "WireGuard interface ${wireguard_interface} is up."
 
     # Verify the interface is actually working by checking if it has an IP
-    local interface_ip
     interface_ip=$(ip addr show "${wireguard_interface}" 2>/dev/null | grep -oP 'inet \K[^/]+' | head -1 || true)
 
     if [[ -n "${interface_ip}" ]]; then
@@ -294,7 +293,6 @@ elif [[ "${wireguard_enabled}" == true ]]; then
     _setup_wireguard
 
     # Verify WireGuard is working before proceeding
-    local wg_interface
     wg_interface="$(cat "/var/run/wireguard/interface" 2>/dev/null || echo 'wg0')"
 
     if ! ip link show "${wg_interface}" >/dev/null 2>&1; then
