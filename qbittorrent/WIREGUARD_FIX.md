@@ -1,103 +1,170 @@
-# WireGuard Connection Fix for qBittorrent Add-on
+# WireGuard Fix for qBittorrent Home Assistant Add-on
 
 ## Problem
-The qBittorrent add-on with WireGuard was failing to establish VPN connections, showing logs like:
+The original qBittorrent add-on's WireGuard implementation was failing with timeout errors after 25 seconds:
 ```
-[16:51:53] INFO: Real (non-VPN) IP from /currentip: 84.25.218.65
-[16:51:53] INFO: VPN detected; enabling IP leak protection and periodic monitoring.
-[16:51:53] WARNING: External IP still equals real IP (84.25.218.65); VPN not ready yet (attempt 1/5).
+WARNING: External IP still equals real IP (84.25.218.65); VPN not ready yet (attempt 1/5).
 ```
 
-## Root Cause
-The VPN monitoring service was checking the external IP too quickly after WireGuard startup, before the VPN connection had time to fully establish. WireGuard connections can take 30-60 seconds to stabilize, especially on slower systems or with distant endpoints.
+Even when the interface was created successfully, the tunnel had no connectivity - no handshake, ping failures, and torrents wouldn't download.
 
-## Fixes Applied
+## Root Causes Identified
 
-### 1. Extended WireGuard Connection Timeout
-- Increased monitoring attempts from 5 to 10 for WireGuard
-- Increased sleep interval from 5 to 10 seconds between attempts
-- Added 30-second initial delay before monitoring starts
+### 1. Timeout Too Short
+The WireGuard connection timeout was only 25 seconds (5 attempts × 5 seconds), which wasn't enough time for the VPN tunnel to establish in Home Assistant containers.
 
-### 2. Better WireGuard Validation
-- Added configuration file validation (checks for [Interface], [Peer], and PrivateKey sections)
-- Added WireGuard tools availability check
-- Added interface IP assignment verification
+### 2. Routing Configuration Error (CRITICAL - Fixed in v5.1.4-26)
+**The main issue**: The routing was configured in the wrong order, creating a chicken-and-egg problem:
+- Default routes through wg0 were added BEFORE the endpoint route
+- This meant handshake packets tried to go through the tunnel that wasn't established yet
+- The VPN server was unreachable, so the handshake never completed
+- Without handshake, the tunnel had no connectivity
 
-### 3. Improved Startup Sequence
-- Added 10-second stabilization wait after WireGuard interface comes up
-- Added interface status verification before starting qBittorrent
-- Better error messages and logging
+## Solution
 
-### 4. Enhanced Monitoring
-- WireGuard-specific timeout handling in VPN monitor
-- Better logging to help debug connection issues
+### Version 5.1.4-26 (Current)
+**CRITICAL FIX**: Corrected routing order to fix tunnel connectivity:
 
-## Configuration Requirements
+1. **Fixed Routing Order**:
+   - Endpoint route is added FIRST (before any default routes)
+   - This ensures handshake packets can reach the VPN server via the original gateway
+   - Only after endpoint is routable, default routes through wg0 are added
+   - Split routing (0.0.0.0/1 and 128.0.0.0/1) to avoid conflicts
 
-### WireGuard Configuration File
-Your WireGuard config file (e.g., `/config/wireguard/wg0.conf`) must contain:
+2. **Enhanced Diagnostics**:
+   - Tests endpoint reachability before configuring routes
+   - Waits up to 30 seconds for handshake with progress updates
+   - Tests actual tunnel connectivity with ping
+   - Provides detailed diagnostics if connection fails
+   - Shows routing table and WireGuard peer status
 
+3. **Extended Timeout**: Increased from 25s to 100+ seconds
+   - 10 attempts instead of 5
+   - 10 second intervals instead of 5
+   - Additional 30 second stabilization period
+
+4. **Configuration Validation**: Added checks for required WireGuard config elements
+   - Validates [Interface] and [Peer] sections exist
+   - Checks for PrivateKey presence
+   - Provides clear error messages
+
+5. **Container-Friendly Setup**: Works around Home Assistant container limitations
+   - Handles iptables permission issues
+   - Falls back to manual interface creation when wg-quick fails
+   - Skips problematic sysctl settings that require elevated privileges
+
+6. **Network Binding**: Ensures qBittorrent only uses VPN
+   - Automatically binds qBittorrent to WireGuard interface
+   - Prevents IP leaks if VPN drops
+
+## Installation
+
+1. Stop the original qBittorrent add-on (to avoid port conflicts)
+2. Add this repository to Home Assistant:
+   ```
+   https://github.com/oozgul/qbittest
+   ```
+3. Install "qBittorrent (Fixed)" add-on
+4. Configure your WireGuard settings:
+   - Enable WireGuard in add-on configuration
+   - Place your `wg0.conf` file in `/config/wireguard/`
+   - Remove any `DNS =` lines from the config file (Home Assistant handles DNS)
+5. Start the add-on
+
+## Configuration Notes
+
+### WireGuard Config File
+Your `/config/wireguard/wg0.conf` should look like:
 ```ini
 [Interface]
 PrivateKey = YOUR_PRIVATE_KEY
-Address = 10.x.x.x/32
-DNS = 1.1.1.1, 1.0.0.1
+Address = 10.x.x.x/16
 
 [Peer]
-PublicKey = PEER_PUBLIC_KEY
-Endpoint = your.vpn.server:51820
+PublicKey = SERVER_PUBLIC_KEY
+Endpoint = vpn.server.com:51820
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
 ```
 
+**Important**: Remove any `DNS =` lines from the config file, as Home Assistant containers handle DNS differently.
+
 ### Add-on Configuration
-```yaml
-wireguard_enabled: true
-wireguard_config: "wg0.conf"  # Optional if only one .conf file exists
-DNS_server: "1.1.1.1,1.0.0.1"  # Should match your WireGuard DNS
-```
+In the add-on configuration UI:
+- Set `wireguard_enabled: true`
+- Optionally set `wireguard_config: wg0.conf` (auto-detected if only one .conf file exists)
+- Configure other qBittorrent settings as needed
 
 ## Troubleshooting
 
-### If WireGuard still fails to connect:
+### "WireGuard configuration not found"
+- Ensure your config file is at `/config/wireguard/wg0.conf`
+- Check file permissions (should be readable)
+- Verify the file has a `.conf` extension
 
-1. **Check your configuration file**:
-   - Ensure it's in `/config/wireguard/`
-   - Verify it has correct syntax
-   - Test it works on your local machine first
+### "VPN endpoint is NOT reachable"
+- Check your WireGuard server is accessible from your network
+- Verify endpoint hostname resolves correctly
+- Ensure firewall allows UDP traffic on the WireGuard port
+- Try pinging the endpoint IP manually
 
-2. **Check the logs**:
-   - Look for "WireGuard configuration validation passed"
-   - Check for iptables errors (may need iptables-legacy fallback)
-   - Verify interface gets an IP address
+### "No handshake detected"
+- Check the endpoint is reachable (see above)
+- Verify your PrivateKey and PublicKey are correct
+- Ensure AllowedIPs includes 0.0.0.0/0
+- Check VPN server logs for connection attempts
 
-3. **Network issues**:
-   - Ensure UDP port 51820 is not blocked
-   - Try different endpoints if your VPN provider offers multiple
-   - Check if your ISP blocks VPN traffic
+### "Cannot reach internet through tunnel"
+- Handshake succeeded but routing may be wrong
+- Check if endpoint route exists: `ip route get <endpoint-ip>`
+- Verify default routes through wg0: `ip route show`
+- Check VPN server allows forwarding
 
-4. **Container permissions**:
-   - The add-on needs NET_ADMIN capability (already configured)
-   - Ensure /dev/net/tun is available (already mapped)
+### "resolvconf: signature mismatch"
+- This is normal in Home Assistant containers
+- The add-on automatically removes DNS configuration from WireGuard
+- DNS is handled by Home Assistant's DNS resolver
 
-### Common Error Messages:
+### "sysctl: permission denied"
+- This is expected in Home Assistant containers
+- The add-on continues anyway if the interface is up
+- Does not affect VPN functionality
 
-- **"WireGuard tools not found"**: WireGuard packages not installed (should not happen with this fix)
-- **"Invalid WireGuard configuration"**: Check your .conf file syntax
-- **"WireGuard interface wg0 is not up"**: Connection failed, check endpoint and keys
-- **"IP LEAK DETECTED"**: VPN dropped, add-on will stop for safety
+## Version History
 
-## Testing the Fix
+- **5.1.4-4**: Initial fork with basic timeout extension
+- **5.1.4-10**: Added configuration validation
+- **5.1.4-15**: Improved container compatibility
+- **5.1.4-20**: Added manual WireGuard setup fallback
+- **5.1.4-25**: Enhanced error handling and network binding
+- **5.1.4-26**: **CRITICAL FIX** - Corrected routing order (endpoint route before default routes) + enhanced diagnostics
 
-1. Enable WireGuard in add-on configuration
-2. Start the add-on
-3. Check logs for:
-   ```
-   [INFO] WireGuard configuration validation passed
-   [INFO] Starting WireGuard interface wg0...
-   [INFO] WireGuard interface wg0 assigned IP: 10.x.x.x
-   [INFO] Waiting 30 seconds for WireGuard connection to stabilize...
-   [INFO] VPN external IP: x.x.x.x (Country)
-   ```
+## Technical Details
 
-The connection should now establish successfully within 60-90 seconds instead of failing after 25 seconds.
+The fix modifies three key files:
+
+1. **`94-wireguard.sh`**: Validates configuration and prepares runtime config
+2. **`svc-qbittorrent/run`**: Handles WireGuard connection with fallbacks
+3. **`vpn-monitor/run`**: Monitors VPN connection with extended timeout
+
+### Routing Logic (v5.1.4-26)
+The critical fix ensures proper routing order:
+
+1. **Get network info**: Identify default gateway, device, and VPN endpoint IP
+2. **Test endpoint**: Verify VPN server is reachable before configuring routes
+3. **Add endpoint route FIRST**: `ip route add <endpoint>/32 via <gateway> dev <device>`
+4. **Wait for route to settle**: 2 second delay
+5. **Add default routes through wg0**: Split routing with 0.0.0.0/1 and 128.0.0.0/1
+6. **Wait for handshake**: Up to 30 seconds with progress updates
+7. **Test connectivity**: Ping through tunnel to verify it works
+
+This order is critical - the endpoint MUST be routable via the original gateway before adding default routes through wg0, otherwise handshake packets can't reach the VPN server.
+
+### Fallback Approaches
+The implementation tries multiple approaches in order:
+1. Standard `wg-quick up` with full config
+2. IPv4-only endpoints (resolves hostnames to IPv4)
+3. Simplified config without routing tables
+4. Manual interface creation with corrected routing order (v5.1.4-26)
+
+This ensures maximum compatibility across different Home Assistant environments and VPN providers.
