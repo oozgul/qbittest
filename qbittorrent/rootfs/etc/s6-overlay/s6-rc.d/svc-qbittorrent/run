@@ -245,6 +245,21 @@ _setup_wireguard() {
                         else
                             bashio::log.warning 'Cannot ping through tunnel - connectivity may be limited'
                         fi
+
+                        # CRITICAL: Bind qBittorrent to wg0 interface
+                        QBT_CONFIG_FILE="/config/qBittorrent/qBittorrent.conf"
+                        if [ -f "${QBT_CONFIG_FILE}" ]; then
+                            bashio::log.info "Binding qBittorrent to wg0 interface..."
+                            sed -i '/Interface/d' "${QBT_CONFIG_FILE}"
+                            sed -i "/\\[Preferences\\]/ i\\Connection\\\\Interface=wg0" "${QBT_CONFIG_FILE}"
+                            sed -i "/\\[Preferences\\]/ i\\Connection\\\\InterfaceName=wg0" "${QBT_CONFIG_FILE}"
+                            sed -i "/\\[BitTorrent\\]/a \\Session\\\\Interface=wg0" "${QBT_CONFIG_FILE}"
+                            sed -i "/\\[BitTorrent\\]/a \\Session\\\\InterfaceName=wg0" "${QBT_CONFIG_FILE}"
+                            bashio::log.info "qBittorrent bound to wg0 - will only use VPN"
+                        else
+                            bashio::log.warning "qBittorrent config not found - manual binding required"
+                        fi
+
                         # Don't return here, let it continue to verification
                     else
                         bashio::log.error 'Manual WireGuard setup also failed'
