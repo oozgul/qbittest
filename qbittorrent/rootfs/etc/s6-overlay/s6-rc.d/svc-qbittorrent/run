@@ -57,12 +57,22 @@ _setup_wireguard() {
 
         # Allow sysctl failures on read-only hosts while keeping the interface up
         if echo "${output}" | grep -qi 'net\.ipv4\.conf\.all\.src_valid_mark=1'; then
-            if echo "${output}" | grep -qiE 'read-only file system|operation not permitted'; then
+            if echo "${output}" | grep -qiE 'read-only file system|operation not permitted|permission denied'; then
                 if ip link show "${wireguard_interface}" >/dev/null 2>&1; then
-                    bashio::log.warning 'WireGuard applied but sysctl net.ipv4.conf.all.src_valid_mark=1 could not be set (read-only). Continuing.'
+                    bashio::log.warning 'WireGuard applied but sysctl net.ipv4.conf.all.src_valid_mark=1 could not be set (permission denied). Continuing.'
                     status=0
                     return 0
                 fi
+            fi
+        fi
+
+        # Handle sysctl permission denied errors specifically
+        if echo "${output}" | grep -qi 'sysctl.*permission denied.*src_valid_mark'; then
+            bashio::log.warning 'sysctl permission denied - this is normal in Home Assistant containers. Checking if interface is up...'
+            if ip link show "${wireguard_interface}" >/dev/null 2>&1; then
+                bashio::log.info 'WireGuard interface is up despite sysctl error. Continuing.'
+                status=0
+                return 0
             fi
         fi
 
