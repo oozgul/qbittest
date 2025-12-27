@@ -96,14 +96,32 @@ _setup_wireguard() {
 
         # Check for iptables errors and try legacy fallback
         if echo "${output}" | grep -qiE 'iptables-restore|ip6tables-restore|xtables'; then
+            bashio::log.warning 'iptables errors detected, trying fallbacks...'
             if command -v iptables-legacy >/dev/null 2>&1; then
                 wg-quick down "${config_path}" >/dev/null 2>&1 || true
                 _wg_prepare_legacy
+                bashio::log.info 'Retrying with iptables-legacy...'
                 output="$(wg-quick up "${config_path}" 2>&1)" || status=$?
-            else
-                bashio::log.warning 'iptables errors detected but iptables-legacy missing.'
-                status=1
+                if [ "${status}" -eq 0 ]; then return 0; fi
             fi
+
+            # If iptables still fails, try without firewall rules
+            bashio::log.warning 'iptables-legacy also failed, trying without firewall rules...'
+            wg-quick down "${config_path}" >/dev/null 2>&1 || true
+
+            # Create a version without PostUp/PostDown/Table rules
+            local no_fw_config="${config_path}.no-fw"
+            grep -v -E '^(PostUp|PostDown|Table)' "${config_path}" > "${no_fw_config}"
+
+            bashio::log.info 'Attempting WireGuard without firewall rules...'
+            output="$(wg-quick up "${no_fw_config}" 2>&1)" || status=$?
+            if [ "${status}" -eq 0 ]; then
+                bashio::log.warning 'WireGuard connected without firewall rules. Traffic may not be properly routed.'
+                return 0
+            fi
+        else
+            bashio::log.warning 'iptables errors detected but iptables-legacy missing.'
+            status=1
         fi
         return "${status}"
     }
@@ -144,9 +162,37 @@ _setup_wireguard() {
 
         # 3. Second Attempt (IPv4 only)
         if ! _wg_up_attempt "${ipv4_config}"; then
-            bashio::log.error 'WireGuard failed to establish connection.'
-            bashio::log.error "${output}"
-            bashio::exit.nok 'WireGuard start failed.'
+            bashio::log.warning 'IPv4-only attempt failed, trying container-friendly config...'
+            bashio::log.debug "Output: ${output}"
+
+            # Create a container-friendly config without complex routing
+            local simple_config="${WIREGUARD_STATE_DIR}/${wireguard_interface}-simple.conf"
+            : > "${simple_config}"
+            chmod 600 "${simple_config}" 2>/dev/null || true
+
+            # Copy config but remove problematic directives
+            while IFS= read -r line || [ -n "$line" ]; do
+                case "${line}" in
+                    Table*|PostUp*|PostDown*|PreUp*|PreDown*)
+                        # Skip routing table and script directives that cause issues in containers
+                        bashio::log.debug "Skipping container-incompatible directive: ${line}"
+                        ;;
+                    *)
+                        echo "${line}" >> "${simple_config}"
+                        ;;
+                esac
+            done < "${ipv4_config}"
+
+            wg-quick down "${ipv4_config}" >/dev/null 2>&1 || true
+
+            # Final attempt with simplified config
+            if ! _wg_up_attempt "${simple_config}"; then
+                bashio::log.error 'WireGuard failed to establish connection with all methods.'
+                bashio::log.error "${output}"
+                bashio::exit.nok 'WireGuard start failed.'
+            else
+                bashio::log.warning 'WireGuard connected with simplified container config. Some advanced routing features may not work.'
+            fi
         fi
     fi
 
