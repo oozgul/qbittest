@@ -23,17 +23,21 @@ _fetch_public_ip() {
         "https://checkip.amazonaws.com"
         "https://domains.google.com/checkip"
         "https://ipinfo.io/ip"
+        "https://httpbin.org/ip"
+        "https://ident.me"
     )
     local shuffled_urls
 
-    if [[ -n "${VPN_INTERFACE:-}" ]]; then
+    # Don't bind to specific interface when using VPN routing
+    # Let the routing table handle it
+    if [[ -n "${VPN_INTERFACE:-}" ]] && [[ "${VPN_INTERFACE}" != "wg0" ]]; then
         curl_iface_opts+=(--interface "${VPN_INTERFACE}")
     fi
 
     mapfile -t shuffled_urls < <(printf "%s\n" "${urls[@]}" | shuf)
 
     for url in "${shuffled_urls[@]}"; do
-        resp=$(curl -fsS --max-time 5 "${curl_iface_opts[@]}" "${url}" 2>/dev/null || true)
+        resp=$(curl -fsS --max-time 10 --retry 2 "${curl_iface_opts[@]}" "${url}" 2>/dev/null || true)
         resp="${resp//[[:space:]]/}"
 
         if [[ "${resp}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ "${resp}" =~ ^[0-9a-fA-F:]+$ ]]; then
