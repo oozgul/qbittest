@@ -66,6 +66,16 @@ _setup_wireguard() {
             fi
         fi
 
+        # Handle resolvconf signature mismatch errors
+        if echo "${output}" | grep -qi 'resolvconf.*signature mismatch'; then
+            bashio::log.warning 'DNS signature mismatch detected, attempting to fix...'
+            # Force update resolv.conf
+            echo "nameserver 1.1.1.1" > /etc/resolv.conf.tmp && mv /etc/resolv.conf.tmp /etc/resolv.conf
+            # Retry the connection
+            output="$(wg-quick up "${config_path}" 2>&1)" || status=$?
+            if [ "${status}" -eq 0 ]; then return 0; fi
+        fi
+
         # Check for iptables errors and try legacy fallback
         if echo "${output}" | grep -qiE 'iptables-restore|ip6tables-restore|xtables'; then
             if command -v iptables-legacy >/dev/null 2>&1; then
