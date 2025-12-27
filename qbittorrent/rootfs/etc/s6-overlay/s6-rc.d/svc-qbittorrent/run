@@ -192,13 +192,17 @@ _setup_wireguard() {
 
                 # Extract key values from config
                 local private_key address endpoint public_key
-                private_key=$(grep "^PrivateKey" "${simple_config}" | cut -d= -f2 | tr -d ' ')
-                address=$(grep "^Address" "${simple_config}" | cut -d= -f2 | tr -d ' ')
-                endpoint=$(grep "^Endpoint" "${simple_config}" | cut -d= -f2 | tr -d ' ')
-                public_key=$(grep "^PublicKey" "${simple_config}" | cut -d= -f2 | tr -d ' ')
+                private_key=$(grep "^PrivateKey" "${simple_config}" | cut -d= -f2- | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+                address=$(grep "^Address" "${simple_config}" | cut -d= -f2- | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+                endpoint=$(grep "^Endpoint" "${simple_config}" | cut -d= -f2- | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+                public_key=$(grep "^PublicKey" "${simple_config}" | cut -d= -f2- | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
 
                 if [[ -n "${private_key}" && -n "${address}" && -n "${endpoint}" && -n "${public_key}" ]]; then
                     bashio::log.info "Attempting manual WireGuard setup..."
+                    bashio::log.debug "Private key length: ${#private_key}"
+                    bashio::log.debug "Address: ${address}"
+                    bashio::log.debug "Endpoint: ${endpoint}"
+                    bashio::log.debug "Public key length: ${#public_key}"
 
                     # Clean up any existing interface
                     ip link delete dev wg0 2>/dev/null || true
