@@ -219,27 +219,7 @@ _setup_wireguard() {
                        ip addr add "${address}" dev wg0 && \
                        ip link set wg0 up; then
 
-                        # Add proper routing to send traffic through VPN
-                        bashio::log.info 'Adding VPN routing for internet connectivity...'
-
-                        # Get the default gateway and interface
-                        default_gw=$(ip route show default 2>/dev/null | awk '{print $3}' | head -1)
-                        default_iface=$(ip route show default 2>/dev/null | awk '{print $5}' | head -1)
-                        vpn_endpoint_ip=$(echo "${endpoint}" | cut -d: -f1)
-
-                        bashio::log.debug "Default gateway: ${default_gw}, interface: ${default_iface}"
-                        bashio::log.debug "VPN endpoint: ${vpn_endpoint_ip}"
-
-                        # Ensure VPN server is reachable through original gateway
-                        if [[ -n "${default_gw}" ]] && [[ -n "${vpn_endpoint_ip}" ]] && [[ -n "${default_iface}" ]]; then
-                            ip route add "${vpn_endpoint_ip}/32" via "${default_gw}" dev "${default_iface}" 2>/dev/null || bashio::log.debug "VPN endpoint route already exists or failed"
-                        fi
-
-                        # Add routes for all traffic through VPN
-                        ip route add 0.0.0.0/1 dev wg0 2>/dev/null || bashio::log.debug "Route 0.0.0.0/1 already exists or failed"
-                        ip route add 128.0.0.0/1 dev wg0 2>/dev/null || bashio::log.debug "Route 128.0.0.0/1 already exists or failed"
-
-                        bashio::log.info 'WireGuard interface created with routing'
+                        bashio::log.info 'WireGuard interface created manually (basic connectivity)'
                         # Don't return here, let it continue to verification
                     else
                         bashio::log.error 'Manual WireGuard setup also failed'
