@@ -204,8 +204,13 @@ _setup_wireguard() {
                     bashio::log.debug "Endpoint: ${endpoint}"
                     bashio::log.debug "Public key length: ${#public_key}"
 
-                    # Clean up any existing interface
-                    ip link delete dev wg0 2>/dev/null || true
+                    # Clean up any existing interface thoroughly
+                    if ip link show wg0 >/dev/null 2>&1; then
+                        bashio::log.debug "Cleaning up existing wg0 interface"
+                        ip link set wg0 down 2>/dev/null || true
+                        ip link delete dev wg0 2>/dev/null || true
+                        sleep 1
+                    fi
 
                     # Manual WireGuard setup without routing tables
                     if ip link add dev wg0 type wireguard && \
@@ -231,10 +236,13 @@ _setup_wireguard() {
                             bashio::log.debug "Added route for VPN server via original gateway"
                         fi
 
-                        # Add DNS servers through VPN interface
-                        echo "nameserver 1.1.1.1" > /etc/resolv.conf.new
-                        echo "nameserver 1.0.0.1" >> /etc/resolv.conf.new
-                        mv /etc/resolv.conf.new /etc/resolv.conf
+                        # Add DNS servers through VPN interface (handle locked resolv.conf)
+                        if ! mv /etc/resolv.conf.new /etc/resolv.conf 2>/dev/null; then
+                            bashio::log.warning 'resolv.conf is locked, using alternative DNS method'
+                            # Try direct write
+                            echo "nameserver 1.1.1.1" > /etc/resolv.conf 2>/dev/null || true
+                            echo "nameserver 1.0.0.1" >> /etc/resolv.conf 2>/dev/null || true
+                        fi
 
                         # Add routes for all traffic through VPN (using two /1 routes to avoid conflicts)
                         ip route add 0.0.0.0/1 dev wg0 2>/dev/null || true
