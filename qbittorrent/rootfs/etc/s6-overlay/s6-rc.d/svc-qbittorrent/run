@@ -312,10 +312,36 @@ _setup_wireguard() {
 
                         # Test actual connectivity through the tunnel
                         bashio::log.info 'Testing tunnel connectivity...'
-                        if ping -c 3 -W 5 1.1.1.1 >/dev/null 2>&1; then
-                            bashio::log.info '✓ Tunnel is working - internet reachable via VPN!'
+
+                        tunnel_working=false
+
+                        # First try pinging the VPN gateway (usually .1 in the subnet)
+                        vpn_gateway=$(echo "${address}" | cut -d/ -f1 | awk -F. '{print $1"."$2".0.1"}')
+                        bashio::log.info "Testing VPN gateway: ${vpn_gateway}"
+                        if ping -c 2 -W 3 "${vpn_gateway}" >/dev/null 2>&1; then
+                            bashio::log.info "✓ VPN gateway ${vpn_gateway} is reachable!"
+                            tunnel_working=true
                         else
-                            bashio::log.error '✗ Cannot reach internet through tunnel'
+                            bashio::log.debug "VPN gateway ${vpn_gateway} not responding (may not support ICMP)"
+                        fi
+
+                        # Try external DNS servers
+                        bashio::log.info "Testing internet connectivity through tunnel..."
+                        if ping -c 2 -W 5 1.1.1.1 >/dev/null 2>&1; then
+                            bashio::log.info '✓ Internet reachable (1.1.1.1 responds)!'
+                            tunnel_working=true
+                        elif ping -c 2 -W 5 8.8.8.8 >/dev/null 2>&1; then
+                            bashio::log.info '✓ Internet reachable (8.8.8.8 responds)!'
+                            tunnel_working=true
+                        elif ping -c 2 -W 5 1.0.0.1 >/dev/null 2>&1; then
+                            bashio::log.info '✓ Internet reachable (1.0.0.1 responds)!'
+                            tunnel_working=true
+                        else
+                            bashio::log.warning '✗ No ICMP responses from public DNS servers'
+                        fi
+
+                        if [[ "${tunnel_working}" == false ]]; then
+                            bashio::log.warning 'Tunnel connectivity test inconclusive'
 
                             # Detailed diagnostics
                             bashio::log.info 'Diagnostics:'
@@ -326,12 +352,34 @@ _setup_wireguard() {
                             if ping -c 1 -W 2 "${vpn_endpoint_ip}" >/dev/null 2>&1; then
                                 bashio::log.info "  Endpoint reachable: YES"
                             else
-                                bashio::log.error "  Endpoint reachable: NO - this is the problem!"
+                                bashio::log.error "  Endpoint reachable: NO - routing may be broken!"
                             fi
 
-                            # Show WireGuard peer info
-                            bashio::log.info "  WireGuard peer info:"
+                            # Show WireGuard peer info and check for received data
+                            bashio::log.info "  WireGuard peer status:"
                             wg show wg0 2>/dev/null | while read -r line; do bashio::log.info "    ${line}"; done || bashio::log.error "    Cannot show peer info"
+
+                            # Check for received data
+                            rx_bytes=$(wg show wg0 transfer 2>/dev/null | awk '{print $1}' | grep -oE '[0-9]+')
+                            if [[ "${rx_bytes}" == "0" || -z "${rx_bytes}" ]]; then
+                                bashio::log.error "  ⚠ No data received from VPN server (0 bytes)"
+                                bashio::log.error "  This usually means:"
+                                bashio::log.error "    1. VPN server firewall is blocking return traffic"
+                                bashio::log.error "    2. VPN server NAT/masquerading not configured"
+                                bashio::log.error "    3. VPN server routing not set up correctly"
+                                bashio::log.error "    4. Some VPN providers block ICMP - try testing with actual torrent traffic"
+                            else
+                                bashio::log.info "  ✓ Received ${rx_bytes} bytes from peer - tunnel may be working"
+                                tunnel_working=true
+                            fi
+
+                            if [[ "${tunnel_working}" == false ]]; then
+                                bashio::log.warning "Continuing anyway - some VPN providers block ICMP ping"
+                                bashio::log.warning "qBittorrent will start and may work even if ping tests fail"
+                                bashio::log.warning "Check qBittorrent logs and test with actual torrent downloads"
+                            fi
+                        else
+                            bashio::log.info '✓ Tunnel connectivity verified!'
                         fi
 
                         # CRITICAL: Bind qBittorrent to wg0 interface
