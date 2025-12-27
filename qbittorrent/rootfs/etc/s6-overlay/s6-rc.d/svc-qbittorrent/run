@@ -237,9 +237,14 @@ _setup_wireguard() {
                         fi
 
                         # Add DNS servers through VPN interface (handle locked resolv.conf)
+                        bashio::log.debug "Setting DNS servers..."
+                        {
+                            echo "nameserver 1.1.1.1"
+                            echo "nameserver 1.0.0.1"
+                        } > /etc/resolv.conf.new 2>/dev/null || true
+
                         if ! mv /etc/resolv.conf.new /etc/resolv.conf 2>/dev/null; then
-                            bashio::log.warning 'resolv.conf is locked, using alternative DNS method'
-                            # Try direct write
+                            bashio::log.warning 'resolv.conf is locked, trying direct write'
                             echo "nameserver 1.1.1.1" > /etc/resolv.conf 2>/dev/null || true
                             echo "nameserver 1.0.0.1" >> /etc/resolv.conf 2>/dev/null || true
                         fi
