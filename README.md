@@ -21,7 +21,7 @@ WARNING: External IP still equals real IP (x.x.x.x); VPN not ready yet (attempt 
 1. Add this repository to Home Assistant:
    - Go to Supervisor → Add-on Store
    - Click ⋮ (three dots) → Repositories
-   - Add: `https://github.com/yourusername/qbittest`
+   - Add: `https://github.com/oozgul/qbittest`
 
 2. Install qBittorrent (Fixed) version 5.1.4-5
 
