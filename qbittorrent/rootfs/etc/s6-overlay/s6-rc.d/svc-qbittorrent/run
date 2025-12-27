@@ -187,11 +187,45 @@ _setup_wireguard() {
 
             # Final attempt with simplified config
             if ! _wg_up_attempt "${simple_config}"; then
-                bashio::log.error 'WireGuard failed to establish connection with all methods.'
-                bashio::log.error "${output}"
-                bashio::exit.nok 'WireGuard start failed.'
+                # Last resort: try manual interface creation without wg-quick
+                bashio::log.warning 'wg-quick failed, trying manual WireGuard setup...'
+
+                # Extract key values from config
+                local private_key address endpoint public_key
+                private_key=$(grep "^PrivateKey" "${simple_config}" | cut -d= -f2 | tr -d ' ')
+                address=$(grep "^Address" "${simple_config}" | cut -d= -f2 | tr -d ' ')
+                endpoint=$(grep "^Endpoint" "${simple_config}" | cut -d= -f2 | tr -d ' ')
+                public_key=$(grep "^PublicKey" "${simple_config}" | cut -d= -f2 | tr -d ' ')
+
+                if [[ -n "${private_key}" && -n "${address}" && -n "${endpoint}" && -n "${public_key}" ]]; then
+                    bashio::log.info "Attempting manual WireGuard setup..."
+
+                    # Clean up any existing interface
+                    ip link delete dev wg0 2>/dev/null || true
+
+                    # Manual WireGuard setup without routing tables
+                    if ip link add dev wg0 type wireguard && \
+                       echo "${private_key}" | wg set wg0 private-key /dev/stdin && \
+                       wg set wg0 peer "${public_key}" endpoint "${endpoint}" allowed-ips 0.0.0.0/0 && \
+                       ip addr add "${address}" dev wg0 && \
+                       ip link set wg0 up; then
+
+                        bashio::log.info 'WireGuard interface created manually (basic connectivity)'
+                        # Don't return here, let it continue to verification
+                    else
+                        bashio::log.error 'Manual WireGuard setup also failed'
+                        bashio::log.error 'WireGuard failed to establish connection with all methods.'
+                        bashio::log.error "${output}"
+                        bashio::exit.nok 'WireGuard start failed.'
+                    fi
+                else
+                    bashio::log.error 'Could not extract required WireGuard parameters'
+                    bashio::log.error 'WireGuard failed to establish connection with all methods.'
+                    bashio::log.error "${output}"
+                    bashio::exit.nok 'WireGuard start failed.'
+                fi
             else
-                bashio::log.warning 'WireGuard connected with simplified container config. Some advanced routing features may not work.'
+                bashio::log.warning 'WireGuard connected with simplified container config.'
             fi
         fi
     fi
