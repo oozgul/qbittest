@@ -28,9 +28,8 @@ _fetch_public_ip() {
     )
     local shuffled_urls
 
-    # Don't bind to specific interface when using VPN routing
-    # Let the routing table handle it
-    if [[ -n "${VPN_INTERFACE:-}" ]] && [[ "${VPN_INTERFACE}" != "wg0" ]]; then
+    # Bind to VPN interface if specified
+    if [[ -n "${VPN_INTERFACE:-}" ]]; then
         curl_iface_opts+=(--interface "${VPN_INTERFACE}")
     fi
 
@@ -148,6 +147,9 @@ fi
 
 if [[ "${vpn_openvpn}" == true ]] && ! bashio::config.true 'openvpn_alt_mode'; then
     VPN_INTERFACE="tun0"
+    bashio::log.info "VPN monitor set to query external IP through interface ${VPN_INTERFACE} (interface binding)."
+elif [[ "${vpn_wireguard}" == true ]]; then
+    VPN_INTERFACE="wg0"
     bashio::log.info "VPN monitor set to query external IP through interface ${VPN_INTERFACE} (interface binding)."
 else
     VPN_INTERFACE=""
