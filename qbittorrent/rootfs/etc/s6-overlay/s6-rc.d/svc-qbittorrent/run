@@ -69,8 +69,16 @@ _setup_wireguard() {
         # Handle resolvconf signature mismatch errors
         if echo "${output}" | grep -qi 'resolvconf.*signature mismatch'; then
             bashio::log.warning 'DNS signature mismatch detected, attempting to fix...'
-            # Force update resolv.conf
-            echo "nameserver 1.1.1.1" > /etc/resolv.conf.tmp && mv /etc/resolv.conf.tmp /etc/resolv.conf
+            # Try to unlock and fix resolv.conf
+            if lsof /etc/resolv.conf >/dev/null 2>&1; then
+                bashio::log.info 'resolv.conf is locked by another process, using alternative DNS approach'
+                # Skip DNS configuration in WireGuard and let add-on handle it
+                sed -i '/^DNS/d' "${config_path}"
+                bashio::log.info 'Removed DNS configuration from WireGuard config, will use add-on DNS settings'
+            else
+                # Force update resolv.conf
+                echo "nameserver 1.1.1.1" > /etc/resolv.conf.new && mv /etc/resolv.conf.new /etc/resolv.conf
+            fi
             # Retry the connection
             output="$(wg-quick up "${config_path}" 2>&1)" || status=$?
             if [ "${status}" -eq 0 ]; then return 0; fi
