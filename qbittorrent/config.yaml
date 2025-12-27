@@ -1,7 +1,7 @@
 arch:
   - aarch64
   - amd64
-description: Bittorrent client with optional vpn
+description: Bittorrent client with optional vpn (WireGuard Fixed)
 devices:
   - /dev/net/tun
   - /dev/dri
@@ -68,7 +68,6 @@ devices:
   - /dev/nvme2
 environment:
   WEBUI_PORT: "8080"
-image: ghcr.io/alexbelgium/qbittorrent-{arch}
 ingress: true
 init: false
 map:
@@ -141,7 +140,7 @@ schema:
   wireguard_config: str?
   wireguard_enabled: bool?
   whitelist: str?
-slug: qbittorrent
+slug: qbittorrent-wg-fixed
 udev: true
 url: https://github.com/alexbelgium/hassio-addons
 version: 5.1.4-5
