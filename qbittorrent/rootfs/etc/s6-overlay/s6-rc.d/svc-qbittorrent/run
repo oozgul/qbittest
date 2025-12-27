@@ -310,6 +310,11 @@ _setup_wireguard() {
                             wg show wg0 2>/dev/null || bashio::log.error "Cannot query WireGuard status"
                         fi
 
+                        # Try to generate some traffic to trigger server response
+                        bashio::log.info 'Generating traffic to establish tunnel...'
+                        curl --interface wg0 -m 5 -s http://icanhazip.com >/dev/null 2>&1 || true
+                        sleep 2
+
                         # Test actual connectivity through the tunnel
                         bashio::log.info 'Testing tunnel connectivity...'
 
@@ -360,7 +365,7 @@ _setup_wireguard() {
                             wg show wg0 2>/dev/null | while read -r line; do bashio::log.info "    ${line}"; done || bashio::log.error "    Cannot show peer info"
 
                             # Check for received data
-                            rx_bytes=$(wg show wg0 transfer 2>/dev/null | awk '{print $1}' | grep -oE '[0-9]+')
+                            rx_bytes=$(wg show wg0 2>/dev/null | grep -oP 'transfer:.*?\K[0-9]+(?= B received)' | head -1)
                             if [[ "${rx_bytes}" == "0" || -z "${rx_bytes}" ]]; then
                                 bashio::log.error "  ⚠ No data received from VPN server (0 bytes)"
                                 bashio::log.error "  This usually means:"
