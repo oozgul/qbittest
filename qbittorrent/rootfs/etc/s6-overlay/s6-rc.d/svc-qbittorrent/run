@@ -214,23 +214,41 @@ _setup_wireguard() {
                        ip addr add "${address}" dev wg0 && \
                        ip link set wg0 up; then
 
-                        # Add basic routing to send traffic through VPN
-                        bashio::log.info 'Adding basic VPN routing...'
+                        # Add proper routing to send traffic through VPN
+                        bashio::log.info 'Adding VPN routing for internet connectivity...'
 
-                        # Get the default gateway
+                        # Get the default gateway and interface
                         default_gw=$(ip route | grep default | awk '{print $3}' | head -1)
+                        default_iface=$(ip route | grep default | awk '{print $5}' | head -1)
                         vpn_endpoint_ip=$(echo "${endpoint}" | cut -d: -f1)
 
-                        # Add route for VPN server through original gateway
-                        if [[ -n "${default_gw}" && -n "${vpn_endpoint_ip}" ]]; then
-                            ip route add "${vpn_endpoint_ip}/32" via "${default_gw}" 2>/dev/null || true
+                        bashio::log.debug "Default gateway: ${default_gw}, interface: ${default_iface}"
+                        bashio::log.debug "VPN endpoint: ${vpn_endpoint_ip}"
+
+                        # Ensure VPN server is reachable through original gateway
+                        if [[ -n "${default_gw}" && -n "${vpn_endpoint_ip}" && -n "${default_iface}" ]]; then
+                            ip route add "${vpn_endpoint_ip}/32" via "${default_gw}" dev "${default_iface}" 2>/dev/null || true
+                            bashio::log.debug "Added route for VPN server via original gateway"
                         fi
 
-                        # Add default route through VPN (split into two /1 routes to avoid conflicts)
-                        ip route add 0.0.0.0/1 dev wg0 metric 100 2>/dev/null || true
-                        ip route add 128.0.0.0/1 dev wg0 metric 100 2>/dev/null || true
+                        # Add DNS servers through VPN interface
+                        echo "nameserver 1.1.1.1" > /etc/resolv.conf.new
+                        echo "nameserver 1.0.0.1" >> /etc/resolv.conf.new
+                        mv /etc/resolv.conf.new /etc/resolv.conf
 
-                        bashio::log.info 'WireGuard interface created manually with routing'
+                        # Add routes for all traffic through VPN (using two /1 routes to avoid conflicts)
+                        ip route add 0.0.0.0/1 dev wg0 2>/dev/null || true
+                        ip route add 128.0.0.0/1 dev wg0 2>/dev/null || true
+
+                        # Ensure local network access is preserved
+                        if [[ -n "${default_gw}" && -n "${default_iface}" ]]; then
+                            # Keep local network routes
+                            ip route add 192.168.0.0/16 via "${default_gw}" dev "${default_iface}" 2>/dev/null || true
+                            ip route add 172.16.0.0/12 via "${default_gw}" dev "${default_iface}" 2>/dev/null || true
+                            ip route add 10.0.0.0/8 via "${default_gw}" dev "${default_iface}" 2>/dev/null || true
+                        fi
+
+                        bashio::log.info 'WireGuard interface created with full internet routing'
                         # Don't return here, let it continue to verification
                     else
                         bashio::log.error 'Manual WireGuard setup also failed'
