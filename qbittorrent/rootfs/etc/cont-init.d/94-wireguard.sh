@@ -40,12 +40,28 @@ if bashio::config.has_value 'wireguard_config'; then
     elif bashio::fs.file_exists "/config/wireguard/${configured_name}"; then
         wireguard_config="/config/wireguard/${configured_name}"
     else
+        # Debug: List what's actually in the wireguard directory
+        bashio::log.info "Debug: Contents of /config/wireguard/:"
+        ls -la /config/wireguard/ 2>/dev/null || bashio::log.info "Directory /config/wireguard/ does not exist"
+        bashio::log.info "Debug: Looking for file: /config/wireguard/${configured_name}"
         bashio::exit.nok "WireGuard configuration '/config/wireguard/${configured_name}' not found."
     fi
 fi
 
 if [ -z "${wireguard_config:-}" ]; then
-    mapfile -t configs < <(find /config/wireguard -maxdepth 1 -type f -name '*.conf' -print)
+    # Debug: Check if directory exists and list contents
+    bashio::log.info "Debug: Checking /config/wireguard/ directory..."
+    if [ -d "/config/wireguard" ]; then
+        bashio::log.info "Debug: Directory exists, contents:"
+        ls -la /config/wireguard/ || bashio::log.info "Cannot list directory contents"
+    else
+        bashio::log.info "Debug: Directory /config/wireguard/ does not exist"
+        bashio::log.info "Debug: Creating /config/wireguard/ directory..."
+        mkdir -p /config/wireguard
+    fi
+
+    mapfile -t configs < <(find /config/wireguard -maxdepth 1 -type f -name '*.conf' -print 2>/dev/null)
+    bashio::log.info "Debug: Found ${#configs[@]} .conf files"
     if [ "${#configs[@]}" -eq 0 ]; then
         bashio::exit.nok 'WireGuard is enabled but no .conf file was found in /config/wireguard.'
     elif [ "${#configs[@]}" -eq 1 ]; then
