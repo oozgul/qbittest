@@ -112,13 +112,16 @@ wait_for_vpn_ip() {
     fi
 
     for attempt in $(seq 1 ${max_attempts}); do
+        bashio::log.debug "VPN IP detection attempt ${attempt}/${max_attempts}"
         if out="$(get_ip_info)"; then
             read -r ip country <<< "${out}"
+            bashio::log.debug "Detected IP: ${ip}, Country: ${country}"
 
             if [[ -n "${REAL_IP:-}" ]] && [[ "${ip}" == "${REAL_IP}" ]]; then
                 bashio::log.warning \
                     "External IP still equals real IP (${ip}); VPN not ready yet (attempt ${attempt}/${max_attempts})."
             else
+                bashio::log.info "VPN IP detected: ${ip} (different from real IP ${REAL_IP:-unknown})"
                 printf '%s %s\n' "${ip}" "${country}"
                 return 0
             fi
@@ -182,9 +185,16 @@ if [[ "${vpn_wireguard}" == true ]]; then
 fi
 
 if ! VPN_INFO_OUT="$(wait_for_vpn_ip)"; then
-    bashio::log.error "Unable to obtain a VPN external IP different from real IP. Stopping add-on."
-    bashio::addon.stop
-    exit 1
+    bashio::log.error "Unable to obtain a VPN external IP different from real IP after extended timeout."
+    bashio::log.error "This could mean:"
+    bashio::log.error "1. VPN is working but IP detection services are blocked by your VPN provider"
+    bashio::log.error "2. VPN routing is not working properly"
+    bashio::log.error "3. VPN server is not responding"
+    bashio::log.warning "Continuing anyway - qBittorrent will work but IP leak protection is disabled."
+
+    # Don't stop the add-on, just disable monitoring
+    bashio::log.info "VPN monitoring disabled due to IP detection failure."
+    exit 0
 fi
 
 read -r VPN_IP VPN_COUNTRY <<< "${VPN_INFO_OUT}"
