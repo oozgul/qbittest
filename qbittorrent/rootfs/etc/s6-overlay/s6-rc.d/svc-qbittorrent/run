@@ -110,7 +110,7 @@ _setup_wireguard() {
             wg-quick down "${config_path}" >/dev/null 2>&1 || true
 
             # Create a version without PostUp/PostDown/Table rules
-            local no_fw_config="${config_path}.no-fw"
+            local no_fw_config="${WIREGUARD_STATE_DIR}/nofw.conf"
             grep -v -E '^(PostUp|PostDown|Table)' "${config_path}" > "${no_fw_config}"
 
             bashio::log.info 'Attempting WireGuard without firewall rules...'
@@ -133,7 +133,7 @@ _setup_wireguard() {
         bashio::log.debug "Output: ${output}"
 
         # 2. IPv4 Fallback Preparation
-        local ipv4_config="${WIREGUARD_STATE_DIR}/${wireguard_interface}-ipv4.conf"
+        local ipv4_config="${WIREGUARD_STATE_DIR}/ipv4.conf"
         : > "${ipv4_config}"
         chmod 600 "${ipv4_config}" 2>/dev/null || true
 
@@ -166,7 +166,7 @@ _setup_wireguard() {
             bashio::log.debug "Output: ${output}"
 
             # Create a container-friendly config without complex routing
-            local simple_config="${WIREGUARD_STATE_DIR}/${wireguard_interface}-simple.conf"
+            local simple_config="${WIREGUARD_STATE_DIR}/simple.conf"
             : > "${simple_config}"
             chmod 600 "${simple_config}" 2>/dev/null || true
 
